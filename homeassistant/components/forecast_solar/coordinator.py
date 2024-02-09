@@ -9,7 +9,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_AZIMUTH,
@@ -22,7 +23,6 @@ from .const import (
     LOGGER,
 )
 
-
 class ForecastSolarDataUpdateCoordinator(DataUpdateCoordinator[Estimate]):
     """The Forecast.Solar Data Update Coordinator."""
 
@@ -31,6 +31,7 @@ class ForecastSolarDataUpdateCoordinator(DataUpdateCoordinator[Estimate]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the Forecast.Solar coordinator."""
         self.config_entry = entry
+        self._reset_at = dt_util.utcnow()
 
         # Our option flow may cause it to be an empty string,
         # this if statement is here to catch that.
@@ -64,4 +65,18 @@ class ForecastSolarDataUpdateCoordinator(DataUpdateCoordinator[Estimate]):
 
     async def _async_update_data(self) -> Estimate:
         """Fetch Forecast.Solar estimates."""
-        return await self.forecast.estimate()
+        if self._reset_at <= dt_util.utcnow():
+            LOGGER.warning(
+                "Skipping update due to previous rate-limt of forecast.solar.  Next refresh at %s",
+                self.reset_at.isoformat()
+            )
+            throw UpdateFailed
+        try:
+            return await self.forecast.estimate()
+        except ForecastSolarRatelimit As e:
+            self._reset_at = e.reset_at 
+            LOGGER.warning(
+                "Reached rate-limt of forecast.solar.  Next refresh at %s",
+                self.reset_at.isoformat()
+            )
+            throw UpdateFailed
